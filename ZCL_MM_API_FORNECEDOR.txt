@@ -1,0 +1,557 @@
+class ZCL_MM_API_FORNECEDOR definition
+  public
+  inheriting from CL_REST_RESOURCE
+  final
+  create public .
+
+public section.
+
+  types:
+    BEGIN OF ty_entrada_post,
+             cnpj                 TYPE stcd1,
+             cpf                  TYPE stcd2,
+             nome                 TYPE ad_name1,
+             rua                  TYPE ad_street,
+             numero               TYPE ad_hsnm1,
+             cidade               TYPE ad_city1,
+             codigo_postal        TYPE ad_pstcd1,
+             pais                 TYPE land1,
+             regiao               TYPE regio,
+             idioma               TYPE spras,
+             telefone             TYPE ad_tlnmbr,
+             email                TYPE ad_smtpadr,
+             grupo_contas         TYPE ktokk,
+             insc_estadual        TYPE stcd3,
+             termo_pesquisa       TYPE ad_sort1,
+             empresa              TYPE bukrs,
+             conta_reconciliacao  TYPE akont,
+             chave_cond_pagamento TYPE dzterm,
+             grupo_admin          TYPE fdgrv,
+             chave_ordenacao      TYPE dzuawa,
+             verifica_fatura      TYPE reprf,
+             org_compras          TYPE ekorg,
+             moeda                TYPE waers,
+             incoterms            TYPE inco1,
+             funcao_parceiro      TYPE parvw,
+           END OF ty_entrada_post .
+
+  data GS_ENTRADA_POST type TY_ENTRADA_POST .
+
+  methods IF_REST_RESOURCE~POST
+    redefinition .
+  methods IF_REST_RESOURCE~GET
+    redefinition .
+protected section.
+private section.
+
+  data MO_MONITOR_HELPER type ref to ZCL_SF_MONITOR_HELPER .
+ENDCLASS.
+
+
+
+CLASS ZCL_MM_API_FORNECEDOR IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_MM_API_FORNECEDOR->IF_REST_RESOURCE~GET
+* +-------------------------------------------------------------------------------------------------+
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD if_rest_resource~get.
+
+  DATA: lv_msg            TYPE string,
+        lv_integration_id TYPE zsf_e_int_id.
+
+  CONSTANTS: lc_api_type       TYPE zsf_e_api_type VALUE 'FORNECEDOR',
+             lc_status_sucesso TYPE zsf_e_status   VALUE 'SUCESSO',
+             lc_status_erro    TYPE zsf_e_status   VALUE 'ERRO'.
+
+  DATA(lo_entity) = mo_response->create_entity( ).
+  lo_entity->set_content_type( if_rest_media_type=>gc_appl_json ).
+
+  " Cria a instância do nosso helper de log
+  me->mo_monitor_helper = NEW zcl_sf_monitor_helper( ).
+
+  DATA(lv_request_info) = |URI: { mo_request->get_uri( ) }|.
+
+  TRY.
+
+      " Cria a entrada inicial do log.
+      me->mo_monitor_helper->create_log_entry(
+        EXPORTING
+          iv_api_type        = lc_api_type
+          iv_doc_number      = 'SEND_FORNECEDOR' " Um nome para identificar a execução
+          iv_request_payload = lv_request_info
+        IMPORTING
+          ev_integration_id  = lv_integration_id ).
+
+      COMMIT WORK.
+
+      SELECT *
+        FROM ztmm_sfforn_ctrl
+        INTO TABLE @DATA(lt_fornecedor)
+        WHERE enviado NE 'X'.
+
+      IF sy-subrc IS INITIAL.
+
+        SELECT *
+          FROM lfa1
+          INTO @DATA(lt_lfa1)
+          FOR ALL ENTRIES IN @lt_fornecedor
+          WHERE lifnr = @lt_fornecedor-lifnr.
+        ENDSELECT.
+
+        IF sy-subrc IS INITIAL.
+
+          lo_entity->set_string_data( /ui2/cl_json=>serialize( lt_lfa1 ) ).
+
+          "Marcando os fornecedores que foram enviados
+          LOOP AT lt_fornecedor ASSIGNING FIELD-SYMBOL(<f_fornecedor_ctrl>).
+            <f_fornecedor_ctrl>-enviado = 'X'.
+          ENDLOOP.
+
+          MODIFY ztmm_sfforn_ctrl FROM TABLE lt_fornecedor.
+
+          lv_msg = 'Fornecedor(es) enviado(s) com sucesso.'.
+
+          me->mo_monitor_helper->update_log_entry(
+         EXPORTING
+           iv_integration_id   = lv_integration_id
+           iv_status           = lc_status_sucesso
+           iv_message          = lv_msg
+           iv_response_payload = /ui2/cl_json=>serialize( lt_lfa1 ) ).
+
+        ENDIF.
+      ELSE.
+
+        lv_msg = 'Não foram encontrados fornecedores para serem enviados.'.
+        lo_entity->set_string_data( /ui2/cl_json=>serialize( lv_msg ) ).
+
+        me->mo_monitor_helper->update_log_entry(
+          EXPORTING
+            iv_integration_id   = lv_integration_id
+            iv_status           = lc_status_sucesso
+            iv_message          = lv_msg ).
+
+      ENDIF.
+
+    CATCH cx_root INTO DATA(lo_exception).
+      ROLLBACK WORK. " Desfaz qualquer alteração parcial no banco
+
+      DATA(lv_error_message) = lo_exception->get_text( ).
+
+      "### ATUALIZA O LOG COM ERRO ###
+      me->mo_monitor_helper->update_log_entry(
+        EXPORTING
+          iv_integration_id   = lv_integration_id
+          iv_status           = lc_status_erro
+          iv_message          = lv_error_message
+          iv_response_payload = /ui2/cl_json=>serialize( lv_error_message )
+      ).
+
+      COMMIT WORK.
+
+      " Responde à chamada da API com uma mensagem de erro padrão
+      mo_response->set_status( cl_rest_status_code=>gc_server_error_internal ).
+      mo_response->create_entity( )->set_string_data( /ui2/cl_json=>serialize( lv_error_message ) ).
+
+  ENDTRY.
+ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_MM_API_FORNECEDOR->IF_REST_RESOURCE~POST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IO_ENTITY                      TYPE REF TO IF_REST_ENTITY
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD if_rest_resource~post.
+
+  DATA: ls_master_data      TYPE vmds_ei_main,
+        ls_vendors          TYPE vmds_ei_extern,
+        ls_company_data     TYPE vmds_ei_company,
+        ls_purchasing_data  TYPE vmds_ei_purchasing,
+        lt_vendors          TYPE vmds_ei_extern_t,
+        ls_return_correct   TYPE cvis_message,
+        ls_return_defective TYPE cvis_message,
+        lt_functions        TYPE vmds_ei_functions_t,
+        ls_functions        TYPE vmds_ei_functions,
+        ls_email            TYPE cvis_ei_smtp,
+        ls_smtp             TYPE cvis_ei_cvi_smtp,
+        ls_smtp_st          TYPE cvis_ei_smtp_str,
+        ls_tcontact         TYPE cvis_ei_phone,
+        ls_phone_st         TYPE cvis_ei_phone_str,
+        ls_phone            TYPE cvis_ei_cvi_phone,
+        lv_msg              TYPE string.
+
+  CONSTANTS: lc_create TYPE c VALUE 'I',
+             lc_update TYPE c VALUE 'U'.
+
+  DATA(lo_entity) = mo_response->create_entity( ).
+  lo_entity->set_content_type( if_rest_media_type=>gc_appl_json ).
+
+  DATA(lv_request_body) = mo_request->get_entity( )->get_string_data( ).
+
+  CALL METHOD cmd_ei_api=>initialize.
+
+  /ui2/cl_json=>deserialize( EXPORTING json = lv_request_body CHANGING data = gs_entrada_post ).
+
+  IF gs_entrada_post IS NOT INITIAL.
+
+    IF gs_entrada_post-cnpj IS NOT INITIAL.
+
+      SELECT SINGLE *
+        FROM lfa1
+        INTO @DATA(ls_forn)
+        WHERE stcd1 = @gs_entrada_post-cnpj.
+
+    ELSEIF gs_entrada_post-cpf IS NOT INITIAL.
+
+      SELECT SINGLE *
+        FROM lfa1
+        INTO ls_forn
+        WHERE stcd2 = gs_entrada_post-cpf.
+
+    ENDIF.
+
+    IF ls_forn IS INITIAL.
+
+      " 1. Preenchimento do Cabeçalho
+      ls_vendors-header-object_task = lc_create. " Criar
+
+      " 2. Preenchimento dos Dados Gerais (Central_Data)
+      " Grupo de Contas
+      ls_vendors-central_data-central-data-ktokk  = gs_entrada_post-grupo_contas.
+      ls_vendors-central_data-central-datax-ktokk = abap_true.
+      ls_vendors-central_data-central-data-stcd1  = gs_entrada_post-cnpj.
+      ls_vendors-central_data-central-datax-stcd1 = abap_true.
+      ls_vendors-central_data-central-data-stcd2  = gs_entrada_post-cpf.
+      ls_vendors-central_data-central-datax-stcd2 = abap_true.
+      ls_vendors-central_data-central-data-stcd3  = gs_entrada_post-insc_estadual.
+      ls_vendors-central_data-central-datax-stcd3 = abap_true.
+
+      "E-mail
+      ls_email-task               = ls_vendors-header-object_task.
+      ls_email-data-e_mail        = gs_entrada_post-email.
+      ls_email-datax-e_mail       = abap_true.
+      ls_smtp-current_state       = ' '.
+      ls_smtp_st-contact          = ls_email.
+      APPEND ls_smtp_st TO ls_smtp-smtp.
+
+      IF ls_smtp-smtp IS NOT INITIAL.
+        ls_vendors-central_data-address-communication-smtp = ls_smtp.
+      ENDIF.
+
+      "Telefone
+      ls_tcontact-task             = ls_vendors-header-object_task.
+      ls_tcontact-data-telephone   = gs_entrada_post-telefone.
+      ls_tcontact-datax-telephone  = abap_true.
+      ls_phone-current_state       = ' '.
+      ls_phone_st-contact          = ls_tcontact.
+      APPEND ls_phone_st TO ls_phone-phone.
+
+      IF ls_phone-phone IS NOT INITIAL.
+        ls_vendors-central_data-address-communication-phone = ls_phone.
+      ENDIF.
+
+      " Endereço
+      ls_vendors-central_data-address-task                    = ls_vendors-header-object_task.
+      ls_vendors-central_data-address-postal-data-name        = gs_entrada_post-nome.
+      ls_vendors-central_data-address-postal-datax-name       = abap_true.
+      ls_vendors-central_data-address-postal-data-street      = gs_entrada_post-rua.
+      ls_vendors-central_data-address-postal-datax-street     = abap_true.
+      ls_vendors-central_data-address-postal-data-house_no    = gs_entrada_post-numero.
+      ls_vendors-central_data-address-postal-datax-house_no   = abap_true.
+      ls_vendors-central_data-address-postal-data-city        = gs_entrada_post-cidade.
+      ls_vendors-central_data-address-postal-datax-city       = abap_true.
+      ls_vendors-central_data-address-postal-data-region      = gs_entrada_post-regiao.
+      ls_vendors-central_data-address-postal-datax-region     = abap_true.
+      ls_vendors-central_data-address-postal-data-postl_cod1  = gs_entrada_post-codigo_postal.
+      ls_vendors-central_data-address-postal-datax-postl_cod1 = abap_true.
+      ls_vendors-central_data-address-postal-data-country     = gs_entrada_post-pais.
+      ls_vendors-central_data-address-postal-datax-country    = abap_true.
+      ls_vendors-central_data-address-postal-data-langu       = sy-langu.
+      ls_vendors-central_data-address-postal-datax-langu      = abap_true.
+      ls_vendors-central_data-address-postal-data-sort1       = gs_entrada_post-termo_pesquisa.
+      ls_vendors-central_data-address-postal-datax-sort1      = abap_true.
+      ls_vendors-central_data-address-postal-data-taxjurcode  = '3333550308'. " Ex: '3550308'
+      ls_vendors-central_data-address-postal-datax-taxjurcode = abap_true.
+
+      " 3. Preenchimento dos Dados da Empresa (Company_Data)
+      ls_company_data-task              = ls_vendors-header-object_task. " Criar
+      ls_company_data-data_key-bukrs    = gs_entrada_post-empresa. " Empresa
+      ls_company_data-data-akont        = gs_entrada_post-conta_reconciliacao. " Conta de Reconciliação
+      ls_company_data-datax-akont       = abap_true.
+      ls_company_data-data-zterm        = gs_entrada_post-chave_cond_pagamento. " Condição de Pagamento
+      ls_company_data-datax-zterm       = abap_true.
+      ls_company_data-data-fdgrv        = gs_entrada_post-grupo_admin. " Insira um grupo de planejamento válido
+      ls_company_data-datax-fdgrv       = abap_true.
+      ls_company_data-data-zuawa        = gs_entrada_post-chave_ordenacao. " Chave de Classificação
+      ls_company_data-datax-zuawa       = abap_true.
+      ls_company_data-data-reprf        = gs_entrada_post-verifica_fatura. " Verif. fatura duplicada
+      ls_company_data-datax-reprf       = abap_true.
+      APPEND ls_company_data TO ls_vendors-company_data-company.
+
+      " 4. Preenchimento dos Dados da Organização de Compras (Purchasing_Data)
+      ls_purchasing_data-task           = ls_vendors-header-object_task. " Criar
+      ls_purchasing_data-data_key-ekorg = gs_entrada_post-org_compras. " Org. Compras
+      ls_purchasing_data-data-waers     = gs_entrada_post-moeda. " Moeda
+      ls_purchasing_data-datax-waers    = abap_true.
+      ls_purchasing_data-data-zterm     = gs_entrada_post-chave_cond_pagamento. " Terms of Payment
+      ls_purchasing_data-datax-zterm    = abap_true.
+      ls_purchasing_data-data-inco1     = gs_entrada_post-incoterms. " Incoterms
+      ls_purchasing_data-datax-inco1    = abap_true.
+
+      ls_functions-task           = ls_vendors-header-object_task.
+      ls_functions-data_key-parvw = gs_entrada_post-funcao_parceiro.
+      APPEND ls_functions TO lt_functions.
+
+      ls_purchasing_data-functions-functions = lt_functions.
+
+      APPEND ls_purchasing_data TO ls_vendors-purchasing_data-purchasing.
+
+      " Adiciona o fornecedor à tabela de fornecedores
+      APPEND ls_vendors TO lt_vendors.
+      ls_master_data-vendors = lt_vendors.
+
+    ELSE.
+
+      " 1. Preenchimento do Cabeçalho
+      ls_vendors-header-object_task = lc_update. " Atualizar
+
+      ls_vendors-header-object_instance-lifnr = ls_forn-lifnr.
+
+      " 2. Preenchimento dos Dados Gerais (Central_Data)
+      " Grupo de Contas
+
+      IF gs_entrada_post-grupo_contas IS NOT INITIAL AND ls_forn-ktokk NE gs_entrada_post-grupo_contas.
+        ls_vendors-central_data-central-data-ktokk  = gs_entrada_post-grupo_contas.
+        ls_vendors-central_data-central-datax-ktokk = abap_true.
+      ENDIF.
+
+*      IF ls_forn-stcd3 NE gs_entrada_post-insc_estadual.
+*        ls_vendors-central_data-central-data-stcd3  = gs_entrada_post-insc_estadual.
+*        ls_vendors-central_data-central-datax-stcd3 = abap_true.
+*      ENDIF.
+
+      "E-mail
+
+      SELECT SINGLE smtp_addr
+        FROM adr6
+        INTO @DATA(ls_adr6)
+        WHERE addrnumber = @ls_forn-adrnr.
+
+      IF gs_entrada_post-email IS NOT INITIAL AND ls_adr6 NE gs_entrada_post-email.
+
+        ls_email-task               = ls_vendors-header-object_task. "Atualizar
+        ls_email-data-e_mail        = gs_entrada_post-email.
+        ls_email-datax-e_mail       = abap_true.
+        ls_smtp-current_state       = ' '.
+        ls_smtp_st-contact          = ls_email.
+        APPEND ls_smtp_st TO ls_smtp-smtp.
+
+        ls_vendors-central_data-address-communication-smtp = ls_smtp.
+
+      ENDIF.
+
+      "Telefone
+      IF  gs_entrada_post-telefone IS NOT INITIAL AND ls_forn-telf1 NE gs_entrada_post-telefone.
+
+        ls_tcontact-task             = ls_vendors-header-object_task. "Atualizar
+        ls_tcontact-data-telephone   = gs_entrada_post-telefone.
+        ls_tcontact-datax-telephone  = abap_true.
+        ls_phone-current_state       = ' '.
+        ls_phone_st-contact          = ls_tcontact.
+        APPEND ls_phone_st TO ls_phone-phone.
+
+        ls_vendors-central_data-address-communication-phone = ls_phone.
+
+      ENDIF.
+
+      " Endereço
+      IF gs_entrada_post-nome IS NOT INITIAL AND ls_forn-name1 NE gs_entrada_post-nome.
+        ls_vendors-central_data-address-postal-data-name        = gs_entrada_post-nome.
+        ls_vendors-central_data-address-postal-datax-name       = abap_true.
+      ENDIF.
+
+      IF  gs_entrada_post-rua IS NOT INITIAL.
+
+        FIND gs_entrada_post-rua IN ls_forn-stras.
+
+        IF sy-subrc IS NOT INITIAL.
+          ls_vendors-central_data-address-postal-data-street      = gs_entrada_post-rua.
+          ls_vendors-central_data-address-postal-datax-street     = abap_true.
+        ENDIF.
+      ENDIF.
+
+      IF  gs_entrada_post-numero IS NOT INITIAL.
+
+        FIND gs_entrada_post-numero IN ls_forn-stras.
+
+        IF sy-subrc IS NOT INITIAL.
+          ls_vendors-central_data-address-postal-data-house_no    = gs_entrada_post-numero.
+          ls_vendors-central_data-address-postal-datax-house_no   = abap_true.
+        ENDIF.
+      ENDIF.
+
+      IF gs_entrada_post-cidade IS NOT INITIAL AND ls_forn-ort01 NE gs_entrada_post-cidade.
+        ls_vendors-central_data-address-postal-data-city        = gs_entrada_post-cidade.
+        ls_vendors-central_data-address-postal-datax-city       = abap_true.
+      ENDIF.
+
+      IF  gs_entrada_post-regiao IS NOT INITIAL AND ls_forn-regio NE gs_entrada_post-regiao.
+        ls_vendors-central_data-address-postal-data-region      = gs_entrada_post-regiao.
+        ls_vendors-central_data-address-postal-datax-region     = abap_true.
+      ENDIF.
+
+      IF  gs_entrada_post-codigo_postal IS NOT INITIAL AND ls_forn-pstlz NE gs_entrada_post-codigo_postal.
+        ls_vendors-central_data-address-postal-data-postl_cod1  = gs_entrada_post-codigo_postal.
+        ls_vendors-central_data-address-postal-datax-postl_cod1 = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-pais IS NOT INITIAL AND ls_forn-land1 NE gs_entrada_post-pais.
+        ls_vendors-central_data-address-postal-data-country     = gs_entrada_post-pais.
+        ls_vendors-central_data-address-postal-datax-country    = abap_true.
+      ENDIF.
+
+      IF ls_forn-spras NE sy-langu.
+        ls_vendors-central_data-address-postal-data-langu       = sy-langu.
+        ls_vendors-central_data-address-postal-datax-langu      = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-termo_pesquisa IS NOT INITIAL AND ls_forn-sortl NE gs_entrada_post-termo_pesquisa.
+        ls_vendors-central_data-address-postal-data-sort1       = gs_entrada_post-termo_pesquisa.
+        ls_vendors-central_data-address-postal-datax-sort1      = abap_true.
+      ENDIF.
+
+      ls_vendors-central_data-address-postal-data-taxjurcode  = gs_entrada_post-cnpj. " Ex: '3550308'
+      ls_vendors-central_data-address-postal-datax-taxjurcode = abap_true.
+
+      IF ls_vendors-central_data-address-postal IS NOT INITIAL.
+        ls_vendors-central_data-address-task = ls_vendors-header-object_task. "Atualizar
+      ENDIF.
+
+      " 3. Preenchimento dos Dados da Empresa (Company_Data)
+      SELECT SINGLE *
+        FROM lfb1
+        INTO @DATA(ls_lfb1)
+        WHERE lifnr = @ls_forn-lifnr.
+
+      IF gs_entrada_post-empresa IS NOT INITIAL AND ls_lfb1-bukrs NE gs_entrada_post-empresa.
+        ls_company_data-data_key-bukrs = gs_entrada_post-empresa. " Empresa
+      ENDIF.
+
+      IF gs_entrada_post-conta_reconciliacao IS NOT INITIAL AND ls_lfb1-akont NE gs_entrada_post-conta_reconciliacao.
+        ls_company_data-data-akont        = gs_entrada_post-conta_reconciliacao. " Conta de Reconciliação
+        ls_company_data-datax-akont       = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-chave_cond_pagamento IS NOT INITIAL AND ls_lfb1-zterm NE gs_entrada_post-chave_cond_pagamento.
+        ls_company_data-data-zterm        = gs_entrada_post-chave_cond_pagamento. " Condição de Pagamento
+        ls_company_data-datax-zterm       = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-grupo_admin IS NOT INITIAL AND ls_lfb1-fdgrv NE gs_entrada_post-grupo_admin.
+        ls_company_data-data-fdgrv        = gs_entrada_post-grupo_admin. " Insira um grupo de planejamento válido
+        ls_company_data-datax-fdgrv       = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-chave_ordenacao IS NOT INITIAL AND ls_lfb1-zuawa NE gs_entrada_post-chave_ordenacao.
+        ls_company_data-data-zuawa        = gs_entrada_post-chave_ordenacao. " Chave de Classificação
+        ls_company_data-datax-zuawa       = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-verifica_fatura IS NOT INITIAL AND ls_lfb1-reprf NE gs_entrada_post-verifica_fatura.
+        ls_company_data-data-reprf        = gs_entrada_post-verifica_fatura. " Verif. fatura duplicada
+        ls_company_data-datax-reprf       = abap_true.
+      ENDIF.
+
+      IF ls_company_data IS NOT INITIAL.
+
+        ls_company_data-task = ls_vendors-header-object_task. " Atualizar
+        APPEND ls_company_data TO ls_vendors-company_data-company.
+
+      ENDIF.
+
+      " 4. Preenchimento dos Dados da Organização de Compras (Purchasing_Data)
+
+      SELECT SINGLE *
+        FROM lfm1
+        INTO @DATA(ls_lfm1)
+        WHERE lifnr = @ls_forn-lifnr.
+
+      IF gs_entrada_post-org_compras IS NOT INITIAL AND ls_lfm1-ekorg NE gs_entrada_post-org_compras.
+        ls_purchasing_data-data_key-ekorg = gs_entrada_post-org_compras. " Org. Compras
+      ENDIF.
+
+      IF gs_entrada_post-moeda IS NOT INITIAL AND ls_lfm1-waers NE gs_entrada_post-moeda.
+        ls_purchasing_data-data-waers     = gs_entrada_post-moeda. " Moeda
+        ls_purchasing_data-datax-waers    = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-chave_cond_pagamento IS NOT INITIAL AND ls_lfm1-zterm NE gs_entrada_post-chave_cond_pagamento.
+        ls_purchasing_data-data-zterm     = gs_entrada_post-chave_cond_pagamento. " Terms of Payment
+        ls_purchasing_data-datax-zterm    = abap_true.
+      ENDIF.
+
+      IF gs_entrada_post-incoterms IS NOT INITIAL AND ls_lfm1-inco1 NE gs_entrada_post-incoterms.
+        ls_purchasing_data-data-inco1     = gs_entrada_post-incoterms. " Incoterms
+        ls_purchasing_data-datax-inco1    = abap_true.
+      ENDIF.
+
+*      IF gs_entrada_post-funcao_parceiro IS NOT INITIAL.
+*
+*        ls_functions-task           = ls_vendors-header-object_task.
+*        ls_functions-data_key-parvw = gs_entrada_post-funcao_parceiro.
+*
+*        APPEND ls_functions TO lt_functions.
+*        ls_purchasing_data-functions-functions = lt_functions.
+*
+*      ENDIF.
+
+      IF ls_purchasing_data IS NOT INITIAL.
+
+        ls_purchasing_data-task = ls_vendors-header-object_task. " Atualizar
+        APPEND ls_purchasing_data TO ls_vendors-purchasing_data-purchasing.
+
+      ENDIF.
+
+      " Adiciona o fornecedor à tabela de fornecedores
+      APPEND ls_vendors TO lt_vendors.
+      ls_master_data-vendors = lt_vendors.
+
+    ENDIF.
+
+    " Chamada da API
+    CALL METHOD vmd_ei_api=>maintain_bapi
+      EXPORTING
+        is_master_data       = ls_master_data
+      IMPORTING
+        es_message_correct   = ls_return_correct
+        es_message_defective = ls_return_defective.
+
+    IF ls_return_defective IS INITIAL.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+
+      IF ls_vendors-header-object_task = 'I'.
+
+        lv_msg = 'Fornecedor criado com sucesso.'.
+
+      ELSEIF ls_vendors-header-object_task = 'U'.
+
+        lv_msg = 'Fornecedor atualizado com sucesso.'.
+
+      ENDIF.
+
+      lo_entity->set_string_data( /ui2/cl_json=>serialize( lv_msg ) ).
+
+    ELSE.
+
+      mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+      lo_entity->set_string_data( /ui2/cl_json=>serialize( ls_return_defective-messages ) ).
+
+    ENDIF.
+  ENDIF.
+ENDMETHOD.
+ENDCLASS.
