@@ -1,0 +1,241 @@
+*&---------------------------------------------------------------------*
+*& Report ZFIR099
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+***********************************************************************
+***                         Santos Brasil                           ***
+***********************************************************************
+***                                                                   *
+*** DESCRIÇÃO: Ajuste de Código de barras incorretos                  *
+*** AUTOR : Vinícius Ferreira – LAB2DEV                               *
+*** FUNCIONAL: Guilherme Nascimento – LAB2DEV                         *
+*** DATA : 03.01.2025                                                 *
+***********************************************************************
+***                    HISTÓRICO DAS MODIFICAÇÕES                     *
+***-------------------------------------------------------------------*
+*** DATA           | AUTOR         | DESCRIÇÃO                        *
+***-------------------------------------------------------------------*
+***  03.01.2025    | Vinícius Ferreira | Ajuste de Cbarras incorretos *
+***********************************************************************
+
+REPORT zfir099.
+
+TYPES: BEGIN OF ty_saida,
+         empresa   TYPE bsik-bukrs,
+         documento TYPE bsik-belnr,
+         ano       TYPE bsik-gjahr,
+         mensagem  TYPE zefi_error,
+       END OF ty_saida.
+
+DATA: lt_saida        TYPE TABLE OF ty_saida,
+      lt_selecionadas TYPE TABLE OF ty_saida,
+      lt_bseg         TYPE TABLE OF bseg,
+      ls_saida        TYPE ty_saida,
+      lv_length       TYPE i.
+
+DATA: lc_table          TYPE REF TO cl_salv_table,
+      lc_columns        TYPE REF TO cl_salv_columns_table,
+      lc_functions      TYPE REF TO cl_salv_functions,
+      lc_functions_list TYPE REF TO cl_salv_functions_list,
+      lo_selections     TYPE REF TO cl_salv_selections,
+      lt_selected       TYPE salv_t_row,
+      lv_index          TYPE sy-tabix,
+      ls_row            TYPE ty_saida,
+      lv_msg_error      TYPE string,
+      lv_opt            TYPE ctu_params,
+      lt_msg            TYPE TABLE OF bdcmsgcoll,
+      lt_msg_erros      TYPE TABLE OF bdcmsgcoll.
+
+CLASS lcl_main DEFINITION CREATE PRIVATE.
+
+  PUBLIC SECTION.
+    CLASS-METHODS create
+      RETURNING
+        VALUE(r_result) TYPE REF TO lcl_main.
+
+    METHODS:
+      on_user_command FOR EVENT added_function OF cl_salv_events
+        IMPORTING e_salv_function.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+
+ENDCLASS.
+
+CLASS lcl_main IMPLEMENTATION.
+
+  METHOD create.
+    CREATE OBJECT r_result.
+  ENDMETHOD.
+
+  METHOD on_user_command.
+
+    CASE e_salv_function.
+      WHEN 'LIMPAR'.
+
+        " Obter linhas selecionadas
+        lt_selected = lc_table->get_selections( )->get_selected_rows( ).
+
+        IF lt_selected IS NOT INITIAL.
+
+          PERFORM zf_opt.
+          DATA(lc_build_bdc) = NEW zcl_fi_build_bdc( ).
+
+          LOOP AT lt_selected INTO DATA(ls_selected).
+
+            READ TABLE lt_saida INTO ls_row INDEX ls_selected.
+
+            IF sy-subrc = 0.
+
+              READ TABLE lt_bseg INTO DATA(ls_sgtxt) WITH KEY  belnr = ls_row-documento
+                                                               gjahr = ls_row-ano
+                                                               bukrs = ls_row-empresa.
+
+              lc_build_bdc->build_bdc( i_dynbegin = 'X' i_name = 'SAPMF05L' i_value = '0100' ).
+              lc_build_bdc->build_bdc( i_name = 'BDC_CURSOR'  i_value = 'RF05L-BELNR' ).
+              lc_build_bdc->build_bdc( i_name = 'BDC_OKCODE'  i_value = '=AZ' ).
+              lc_build_bdc->build_bdc( i_name = 'RF05L-BELNR' i_value = CONV #( ls_row-documento ) ).
+              lc_build_bdc->build_bdc( i_name = 'RF05L-BUKRS' i_value = CONV #( ls_row-empresa ) ).
+              lc_build_bdc->build_bdc( i_name = 'RF05L-GJAHR' i_value = CONV #( ls_row-ano ) ).
+
+              lc_build_bdc->build_bdc( i_dynbegin = 'X' i_name = 'SAPMF05L' i_value = '0302' ).
+              lc_build_bdc->build_bdc( i_name = 'BDC_CURSOR'  i_value = 'RF05L-BRCDE' ).
+              lc_build_bdc->build_bdc( i_name = 'BDC_OKCODE'  i_value = '=AE' ).
+              lc_build_bdc->build_bdc( i_name = 'BSEG-ZLSCH'  i_value = 'U' ).
+              lc_build_bdc->build_bdc( i_name = 'RF05L-BRCDE' i_value = '' ).
+              lc_build_bdc->build_bdc( i_name = 'BSEG-SGTXT' i_value = CONV #( ls_sgtxt-sgtxt ) ).
+              DATA(lt_bdcdata) = lc_build_bdc->get_bdc( ).
+
+              CALL TRANSACTION 'FB02' USING lt_bdcdata OPTIONS FROM lv_opt MESSAGES INTO lt_msg.
+              lc_build_bdc->clear_bdc( ).
+
+              READ TABLE lt_msg INTO DATA(ls_msg_erros) WITH KEY msgtyp = 'E'.
+
+              IF sy-subrc IS INITIAL.
+                APPEND ls_msg_erros TO lt_msg_erros.
+              ENDIF.
+            ENDIF.
+          ENDLOOP.
+
+          IF lt_msg_erros IS NOT INITIAL.
+
+            cl_salv_table=>factory(
+              IMPORTING
+                r_salv_table = lc_table
+              CHANGING
+                t_table = lt_msg_erros ).
+
+            lc_columns = lc_table->get_columns( ).
+            lc_columns->set_optimize( ).
+            lc_table->display( ).
+
+          ENDIF.
+        ELSE.
+          MESSAGE 'Nenhuma linha foi selecionada' TYPE 'E'.
+        ENDIF.
+
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.
+
+SELECTION-SCREEN BEGIN OF BLOCK bl01 WITH FRAME TITLE TEXT-t01.
+  SELECT-OPTIONS: s_data FOR sy-datum OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK bl01.
+
+START-OF-SELECTION.
+
+  SELECT *
+    FROM bseg
+    INTO TABLE lt_bseg
+    WHERE glo_ref1 <> space.
+
+  IF sy-subrc IS INITIAL.
+
+    SELECT *
+      FROM bsik
+      INTO TABLE @DATA(lt_bsik)
+      FOR ALL ENTRIES IN @lt_bseg
+      WHERE belnr = @lt_bseg-belnr
+        AND gjahr = @lt_bseg-gjahr
+        AND bukrs = @lt_bseg-bukrs
+        AND buzei = @lt_bseg-buzei
+        AND budat IN @s_data.
+
+    LOOP AT lt_bsik INTO DATA(ls_bsik).
+
+      READ TABLE lt_bseg INTO DATA(ls_glo_ref1) WITH KEY belnr = ls_bsik-belnr
+                                                         gjahr = ls_bsik-gjahr
+                                                         bukrs = ls_bsik-bukrs
+                                                         buzei = ls_bsik-buzei.
+
+      IF ls_glo_ref1-glo_ref1 IS NOT INITIAL.
+
+        lv_length = strlen( ls_glo_ref1-glo_ref1 ).
+
+        IF lv_length < 47 OR lv_length > 48.
+
+          ls_saida-empresa   = ls_glo_ref1-bukrs.
+          ls_saida-documento = ls_glo_ref1-belnr.
+          ls_saida-ano       = ls_glo_ref1-gjahr.
+          ls_saida-mensagem  = 'Quantidade de caracteres do código de barras inválida'.
+
+          APPEND ls_saida TO lt_saida.
+
+        ELSEIF ls_glo_ref1-glo_ref1 CA 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.
+
+          ls_saida-empresa   = ls_glo_ref1-bukrs.
+          ls_saida-documento = ls_glo_ref1-belnr.
+          ls_saida-ano       = ls_glo_ref1-gjahr.
+          ls_saida-mensagem  = 'O nº do código de barras contém caracteres não permitidos'.
+
+          APPEND ls_saida TO lt_saida.
+
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+  IF lt_saida IS NOT INITIAL.
+
+    cl_salv_table=>factory(
+    IMPORTING
+      r_salv_table = lc_table
+    CHANGING
+      t_table = lt_saida ).
+
+    lc_columns = lc_table->get_columns( ).
+    lc_columns->set_optimize( ).
+
+    " Habilitar botões padrão
+    lc_functions = lc_table->get_functions( ).
+    lc_functions->set_all( abap_true ).
+
+    " Habilitar seleção de linha
+    lo_selections = lc_table->get_selections( ).
+    lo_selections->set_selection_mode( if_salv_c_selection_mode=>row_column ).
+
+    DATA(lc_events) = lc_table->get_event( ).
+    DATA(lc_main) = lcl_main=>create( ).
+
+    " Capturar o evento do botão apertado
+    SET HANDLER lc_main->on_user_command FOR lc_events.
+
+    lc_table->set_screen_status(
+      EXPORTING
+        report        = sy-repid                  " ABAP Program: Current Master Program
+        pfstatus      = 'STANDARD'                " Screens, Current GUI Status
+        set_functions = lc_table->c_functions_all " ALV: Data Element for Constants
+    ).
+
+    lc_table->display( ).
+
+  ELSE.
+    MESSAGE 'Nenhum documento com erro foi encontrado' TYPE 'S'.
+  ENDIF.
+
+FORM zf_opt.
+  lv_opt-dismode = 'N'.
+  lv_opt-updmode = 'S'.
+  lv_opt-racommit = 'X'.
+ENDFORM.

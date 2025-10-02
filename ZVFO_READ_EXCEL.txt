@@ -1,0 +1,145 @@
+*&---------------------------------------------------------------------*
+*& Report ZVFO_READ_EXCEL
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zvfo_read_excel.
+
+TYPES: BEGIN OF ty_excel,
+         colaborador    TYPE char60,
+         num_integrante TYPE i,
+         data_entrega   TYPE char10,
+         descricao      TYPE char60,
+         codigo         TYPE i,
+         lote           TYPE char10,
+         um             TYPE char3,
+         qtda_entrega   TYPE i,
+       END OF  ty_excel.
+
+DATA: gt_excel TYPE STANDARD TABLE OF ty_excel,
+      gt_final TYPE TABLE OF ztabvfo_colab,
+      gs_final TYPE ztabvfo_colab,
+      gv_file  TYPE string.
+
+DATA: ifiletable TYPE filetable,
+      xfiletable LIKE LINE OF ifiletable,
+      rc         TYPE i.
+
+PARAMETERS: p_file1 TYPE localfile DEFAULT'C:test.txt',
+            p_bukrs TYPE bukrs,
+            p_werks TYPE werks_d.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file1.
+
+  PERFORM zf_busca_file.
+
+START-OF-SELECTION.
+
+  PERFORM zf_processa_dados.
+
+  PERFORM zf_exibi_dados.
+
+
+FORM zf_busca_file.
+
+*Lê e armazena o caminho do arquivo
+  CALL METHOD cl_gui_frontend_services=>file_open_dialog
+    EXPORTING
+      initial_directory       = 'C:'
+    CHANGING
+      file_table              = ifiletable
+      rc                      = rc
+    EXCEPTIONS
+      file_open_dialog_failed = 1
+      cntl_error              = 2
+      error_no_gui            = 3
+      OTHERS                  = 4.
+
+  READ TABLE ifiletable INTO xfiletable INDEX 1.
+
+  IF sy-subrc = 0.
+    p_file1 = xfiletable-filename.
+  ENDIF.
+
+  gv_file = p_file1.
+
+ENDFORM.
+
+FORM zf_processa_dados.
+
+  DATA: lv_number TYPE numc10.
+
+*Transforma o arquivo da planilha em uma tabela interna
+  zcl_vfo_excel=>xls_to_itab(
+    EXPORTING
+      xls_file = gv_file
+    IMPORTING
+      itab     = gt_excel
+    EXCEPTIONS
+      OTHERS   = 1
+  ).
+
+  DELETE gt_excel WHERE colaborador IS INITIAL.
+
+  LOOP AT gt_excel ASSIGNING FIELD-SYMBOL(<f_excel>).
+
+    gs_final-colaborador    = <f_excel>-colaborador.
+    gs_final-num_integrante = <f_excel>-num_integrante.
+    gs_final-data_entrega   = <f_excel>-data_entrega.
+    gs_final-descricao      = <f_excel>-descricao.
+    gs_final-codigo         = <f_excel>-codigo.
+    gs_final-lote           = <f_excel>-lote.
+    gs_final-um             = <f_excel>-um.
+    gs_final-qtda_entrega   = <f_excel>-qtda_entrega.
+
+    AT NEW colaborador.
+
+      CALL FUNCTION 'NUMBER_GET_NEXT'
+        EXPORTING
+          nr_range_nr             = '01'
+          object                  = 'ZVFO_RANGE'
+        IMPORTING
+          number                  = lv_number
+        EXCEPTIONS
+          interval_not_found      = 1
+          number_range_not_intern = 2
+          object_not_found        = 3
+          quantity_is_0           = 4
+          quantity_is_not_1       = 5
+          interval_overflow       = 6
+          buffer_overflow         = 7
+          OTHERS                  = 8.
+
+      IF sy-subrc IS INITIAL.
+
+        gs_final-sequencial = lv_number.
+
+      ENDIF.
+    ENDAT.
+
+    APPEND gs_final TO gt_final.
+
+  ENDLOOP.
+
+  MODIFY ztabvfo_colab FROM TABLE gt_final.
+
+ENDFORM.
+
+FORM zf_exibi_dados.
+
+DATA: lc_table     TYPE REF TO cl_salv_table,
+      lc_functions TYPE REF TO cl_salv_functions.
+
+*Imprime a tabela de saída em uma ALV
+  CALL METHOD cl_salv_table=>factory
+    IMPORTING
+      r_salv_table = lc_table
+    CHANGING
+      t_table      = gt_final.
+
+  lc_functions = lc_table->get_functions( ).
+  lc_functions->set_all( abap_true ).
+
+  CALL METHOD lc_table->display.
+
+ENDFORM.
