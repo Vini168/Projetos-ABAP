@@ -1,0 +1,190 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=ISO-8859-1" />
+<title>ZVINI_TREINA3</title>
+<style type="text/css">
+.code{ font-family:"Courier New", Courier, monospace; color:#000; font-size:14px; background-color:#F2F4F7 }
+  .codeComment {font-family:"Courier New", Courier, monospace; color:#0000F0; font-size:14px; background-color:#F2F4F7 }
+  .normalBold{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px; font-weight:800 }
+  .normalBoldLarge{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; font-weight:800 }
+</style>
+<style type="text/css">
+  .normal{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px }
+  .footer{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px; text-align: center }
+  h2{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; font-weight:800 }
+  h3{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:14px; font-weight:800 }
+  .outerTable{
+   background-color:#E0E7ED;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-right-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+  .innerTable{
+   background-color:#F2F4F7;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-bottom-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+</style>
+</head>
+<body>
+<table class="outerTable">
+  <tr class="normalBoldLarge">
+     <td><h2>Code listing for: ZVINI_TREINA3</h2>
+<h3> Description: </h3></td>
+   </tr>
+  <tr>
+     <td>
+     <table class="innerTable">
+       <tr>
+          <td>
+   <div class="codeComment">
+*&---------------------------------------------------------------------*<br />
+*&&nbsp;Report&nbsp;ZVINI_TREINA3<br />
+*&---------------------------------------------------------------------*<br />
+*&<br />
+*&---------------------------------------------------------------------*<br />
+   </div>
+   <div class="code">
+REPORT zvini_treina3.<br />
+<br />
+PARAMETERS: p_query TYPE string.<br />
+<br />
+DATA: lv_matches   TYPE string,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lv_pattern&nbsp;&nbsp;&nbsp;TYPE&nbsp;string&nbsp;VALUE&nbsp;'(?:from|FROM)\s+(\w+)(?:\s+where|\s|$)',&nbsp;"&nbsp;Expressão&nbsp;regular&nbsp;para&nbsp;identificar&nbsp;a&nbsp;tabela<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lv_nome_tab&nbsp;&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;data,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lv_nome_tab2&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;data,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;cl_table&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;cl_salv_table,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lc_functions&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;cl_salv_functions,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lv_erro&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;n.<br />
+<br />
+DATA: lo_sql_statement TYPE REF TO cl_sql_statement,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;l_variavel&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;string,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;l_smt&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;string,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;l_dref&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;data,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;o_ref_m2t04&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;data,<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lt_result_set&nbsp;&nbsp;&nbsp;&nbsp;TYPE&nbsp;REF&nbsp;TO&nbsp;cl_sql_result_set.<br />
+<br />
+<br />
+FIND 'INSERT' IN p_query IGNORING CASE.<br />
+IF sy-subrc IS INITIAL.<br />
+&nbsp;&nbsp;lv_erro&nbsp;=&nbsp;1.<br />
+ENDIF.<br />
+<br />
+FIND 'UPDATE' IN p_query IGNORING CASE.<br />
+IF sy-subrc IS INITIAL.<br />
+&nbsp;&nbsp;lv_erro&nbsp;=&nbsp;lv_erro&nbsp;+&nbsp;1.<br />
+ENDIF.<br />
+<br />
+FIND 'MODIFY' IN p_query IGNORING CASE.<br />
+IF sy-subrc IS INITIAL.<br />
+&nbsp;&nbsp;lv_erro&nbsp;=&nbsp;lv_erro&nbsp;+&nbsp;1.<br />
+ENDIF.<br />
+<br />
+FIND 'DELETE' IN p_query IGNORING CASE.<br />
+IF sy-subrc IS INITIAL.<br />
+&nbsp;&nbsp;lv_erro&nbsp;=&nbsp;lv_erro&nbsp;+&nbsp;1.<br />
+ENDIF.<br />
+<br />
+IF lv_erro IS INITIAL.<br />
+   </div>
+   <div class="codeComment">
+*---------Pega&nbsp;o&nbsp;nome&nbsp;da&nbsp;tabela&nbsp;que&nbsp;vier&nbsp;na&nbsp;query------------------------------<br />
+<br />
+   </div>
+   <div class="code">
+&nbsp;&nbsp;FIELD-SYMBOLS&nbsp;&lt;table&gt;&nbsp;TYPE&nbsp;STANDARD&nbsp;TABLE.<br />
+<br />
+&nbsp;&nbsp;"&nbsp;Encontrar&nbsp;o&nbsp;nome&nbsp;da&nbsp;tabela&nbsp;na&nbsp;consulta&nbsp;usando&nbsp;expressões&nbsp;regulares<br />
+&nbsp;&nbsp;FIND&nbsp;REGEX&nbsp;lv_pattern&nbsp;IN&nbsp;p_query&nbsp;SUBMATCHES&nbsp;lv_matches.<br />
+<br />
+&nbsp;&nbsp;CREATE&nbsp;DATA&nbsp;lv_nome_tab&nbsp;TYPE&nbsp;STANDARD&nbsp;TABLE&nbsp;OF&nbsp;(lv_matches).<br />
+&nbsp;&nbsp;ASSIGN&nbsp;lv_nome_tab-&gt;*&nbsp;TO&nbsp;&lt;table&gt;.<br />
+<br />
+&nbsp;&nbsp;CREATE&nbsp;DATA&nbsp;lv_nome_tab2&nbsp;LIKE&nbsp;LINE&nbsp;OF&nbsp;&lt;table&gt;.<br />
+&nbsp;&nbsp;ASSIGN&nbsp;lv_nome_tab2-&gt;*&nbsp;TO&nbsp;FIELD-SYMBOL(&lt;table2&gt;).<br />
+<br />
+   </div>
+   <div class="codeComment">
+*-----------------------------FIM-----------------------------------------------<br />
+<br />
+*-----------------------Executa&nbsp;a&nbsp;query-----------------------------------------<br />
+<br />
+   </div>
+   <div class="code">
+&nbsp;&nbsp;TRY.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;l_variavel&nbsp;=&nbsp;'PRIMARY&nbsp;KEY'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CONCATENATE<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;p_query&nbsp;'ORDER&nbsp;BY&nbsp;?'<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;INTO&nbsp;l_smt&nbsp;SEPARATED&nbsp;BY&nbsp;space.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;CREATE&nbsp;OBJECT&nbsp;lo_sql_statement.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GET&nbsp;REFERENCE&nbsp;OF&nbsp;l_variavel&nbsp;INTO&nbsp;l_dref.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lo_sql_statement-&gt;set_param(&nbsp;l_dref&nbsp;).<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;GET&nbsp;REFERENCE&nbsp;OF&nbsp;&lt;table2&gt;&nbsp;INTO&nbsp;o_ref_m2t04.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lt_result_set&nbsp;=&nbsp;lo_sql_statement-&gt;execute_query(&nbsp;l_smt&nbsp;).<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;lt_result_set-&gt;set_param_struct(&nbsp;o_ref_m2t04&nbsp;).<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;WHILE&nbsp;lt_result_set-&gt;next(&nbsp;)&nbsp;&gt;&nbsp;0.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;APPEND&nbsp;&lt;table2&gt;&nbsp;TO&nbsp;&lt;table&gt;.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ENDWHILE.<br />
+&nbsp;&nbsp;ENDTRY.<br />
+   </div>
+   <div class="codeComment">
+*-----------------------------FIM-----------------------------------------------<br />
+<br />
+*---------------Exibe&nbsp;os&nbsp;dados&nbsp;que&nbsp;foram&nbsp;retornados&nbsp;em&nbsp;uma&nbsp;ALV------------------<br />
+<br />
+   </div>
+   <div class="code">
+&nbsp;&nbsp;CALL&nbsp;METHOD&nbsp;cl_salv_table=&gt;factory<br />
+&nbsp;&nbsp;&nbsp;&nbsp;IMPORTING<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;r_salv_table&nbsp;=&nbsp;cl_table<br />
+&nbsp;&nbsp;&nbsp;&nbsp;CHANGING<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;t_table&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;=&nbsp;&lt;table&gt;.<br />
+<br />
+&nbsp;&nbsp;lc_functions&nbsp;=&nbsp;cl_table-&gt;get_functions(&nbsp;).<br />
+&nbsp;&nbsp;lc_functions-&gt;set_all(&nbsp;abap_true&nbsp;).<br />
+<br />
+&nbsp;&nbsp;CALL&nbsp;METHOD&nbsp;cl_table-&gt;display.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*-----------------------------FIM-----------------------------------------------<br />
+   </div>
+   <div class="code">
+ELSE.<br />
+&nbsp;&nbsp;WRITE:&nbsp;'Esta&nbsp;não&nbsp;é&nbsp;uma&nbsp;query'.<br />
+ENDIF.<br />
+            </div>
+          </td>
+        </tr>
+      </table>
+      </td>
+      </tr>
+   <tr>
+<td class="footer">Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2024. Sap Release 754</td>
+   </tr>
+</table>
+</body>
+</html>

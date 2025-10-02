@@ -1,0 +1,256 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="application/xhtml+xml; charset=ISO-8859-1" />
+<title>ZVINI_TREINA</title>
+<style type="text/css">
+.code{ font-family:"Courier New", Courier, monospace; color:#000; font-size:14px; background-color:#F2F4F7 }
+  .codeComment {font-family:"Courier New", Courier, monospace; color:#0000F0; font-size:14px; background-color:#F2F4F7 }
+  .normalBold{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px; font-weight:800 }
+  .normalBoldLarge{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; font-weight:800 }
+</style>
+<style type="text/css">
+  .normal{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px }
+  .footer{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:12px; text-align: center }
+  h2{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:16px; font-weight:800 }
+  h3{ font-family:Arial, Helvetica, sans-serif; color:#000; font-size:14px; font-weight:800 }
+  .outerTable{
+   background-color:#E0E7ED;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-right-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+  .innerTable{
+   background-color:#F2F4F7;
+   width:100%;
+   border-top-width: thin;
+   border-right-width: thin;
+   border-bottom-width: thin;
+   border-left-width: thin;
+   border-top-style: solid;
+   border-right-style: solid;
+   border-bottom-style: solid;
+   border-left-style: solid;
+  }
+</style>
+</head>
+<body>
+<table class="outerTable">
+  <tr class="normalBoldLarge">
+     <td><h2>Code listing for: ZVINI_TREINA</h2>
+<h3> Description: Treinamento - Boas Praticas</h3></td>
+   </tr>
+  <tr>
+     <td>
+     <table class="innerTable">
+       <tr>
+          <td>
+   <div class="codeComment">
+*&---------------------------------------------------------------------*<br />
+*&&nbsp;Report&nbsp;ZVINI_TREINA<br />
+*&---------------------------------------------------------------------*<br />
+*&<br />
+*&---------------------------------------------------------------------*<br />
+   </div>
+   <div class="code">
+REPORT zvini_treina.<br />
+<br />
+DATA: ls_ztdsr01 TYPE ztdsr01.<br />
+DATA: ls_ztdsr02 TYPE ztdsr02.<br />
+<br />
+START-OF-SELECTION.<br />
+<br />
+&nbsp;&nbsp;SELECT&nbsp;*<br />
+&nbsp;&nbsp;&nbsp;&nbsp;FROM&nbsp;ztdsr01<br />
+&nbsp;&nbsp;&nbsp;&nbsp;INTO&nbsp;TABLE&nbsp;@DATA(lt_ztdsr01).<br />
+<br />
+&nbsp;&nbsp;DELETE&nbsp;ADJACENT&nbsp;DUPLICATES&nbsp;FROM&nbsp;lt_ztdsr01&nbsp;COMPARING&nbsp;cargo.<br />
+<br />
+&nbsp;&nbsp;PERFORM&nbsp;zf_atualiza.<br />
+<br />
+&nbsp;&nbsp;PERFORM&nbsp;zf_process1.<br />
+<br />
+&nbsp;&nbsp;PERFORM&nbsp;zf_process2.<br />
+<br />
+&nbsp;&nbsp;PERFORM&nbsp;zf_process3.<br />
+<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&---------------------------------------------------------------------<br />
+*&&nbsp;Form&nbsp;zf_process1<br />
+*&---------------------------------------------------------------------<br />
+   </div>
+   <div class="code">
+FORM zf_process1 .<br />
+<br />
+&nbsp;&nbsp;ls_ztdsr01-cargo&nbsp;=&nbsp;'cargo'.<br />
+&nbsp;&nbsp;ls_ztdsr01-dtproc&nbsp;=&nbsp;'20231121'.<br />
+&nbsp;&nbsp;ls_ztdsr01-hrproc&nbsp;=&nbsp;'183530'.<br />
+&nbsp;&nbsp;ls_ztdsr01-name&nbsp;&nbsp;&nbsp;=&nbsp;'Caio'.<br />
+&nbsp;&nbsp;ls_ztdsr01-uname&nbsp;&nbsp;=&nbsp;'BPINST'.<br />
+<br />
+&nbsp;&nbsp;INSERT&nbsp;ls_ztdsr01&nbsp;INTO&nbsp;TABLE&nbsp;lt_ztdsr01&nbsp;.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*UTILIZAR&nbsp;CASE<br />
+<br />
+   </div>
+   <div class="code">
+&nbsp;&nbsp;loop&nbsp;at&nbsp;lt_ztdsr01&nbsp;INTO&nbsp;ls_ztdsr01.<br />
+<br />
+&nbsp;&nbsp;CASE&nbsp;ls_ztdsr01-name(1).<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;'A'.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'1'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;'B'&nbsp;OR&nbsp;'C'.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'2'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;'D'&nbsp;OR&nbsp;'E'.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'4'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;'Y'&nbsp;OR&nbsp;'W'.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'5'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;'Z'.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'3'.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHEN&nbsp;OTHERS.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-id&nbsp;=&nbsp;'6'.<br />
+<br />
+&nbsp;&nbsp;ENDCASE.<br />
+<br />
+&nbsp;&nbsp;MODIFY&nbsp;lt_ztdsr01&nbsp;FROM&nbsp;ls_ztdsr01&nbsp;INDEX&nbsp;sy-tabix.<br />
+<br />
+ENDLOOP.<br />
+ENDFORM.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&---------------------------------------------------------------------<br />
+*&&nbsp;Form&nbsp;zf_process2<br />
+*&---------------------------------------------------------------------<br />
+   </div>
+   <div class="code">
+FORM zf_process2 .<br />
+<br />
+&nbsp;&nbsp;LOOP&nbsp;AT&nbsp;lt_ztdsr01&nbsp;INTO&nbsp;ls_ztdsr01.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;IF&nbsp;ls_ztdsr01-id&nbsp;IS&nbsp;INITIAL.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;DELETE&nbsp;lt_ztdsr01&nbsp;INDEX&nbsp;sy-tabix.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;ELSE.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&nbsp;tirar&nbsp;esse&nbsp;perform&nbsp;daqui<br />
+   </div>
+   <div class="code">
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;PERFORM&nbsp;zf_busca_info_add.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;IF&nbsp;ls_ztdsr01-cargo&nbsp;IS&nbsp;NOT&nbsp;INITIAL.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-cargo&nbsp;&nbsp;=&nbsp;ls_ztdsr02-cargo.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-dtproc&nbsp;=&nbsp;sy-datum.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr01-hrproc&nbsp;=&nbsp;sy-uzeit.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MODIFY&nbsp;lt_ztdsr01&nbsp;FROM&nbsp;ls_ztdsr01&nbsp;INDEX&nbsp;sy-tabix.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ENDIF.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;ENDIF.<br />
+&nbsp;&nbsp;ENDLOOP.<br />
+<br />
+&nbsp;&nbsp;SELECT&nbsp;*<br />
+&nbsp;&nbsp;&nbsp;&nbsp;FROM&nbsp;ztdsr02<br />
+&nbsp;&nbsp;&nbsp;&nbsp;INTO&nbsp;TABLE&nbsp;lt_ztdsr01<br />
+&nbsp;&nbsp;&nbsp;&nbsp;FOR&nbsp;ALL&nbsp;ENTRIES&nbsp;IN&nbsp;lt_ztdsr01<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHERE&nbsp;uname&nbsp;=&nbsp;lt_ztdsr01-uname.<br />
+<br />
+<br />
+ENDFORM.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&---------------------------------------------------------------------<br />
+*&&nbsp;Form&nbsp;zf_process3<br />
+*&---------------------------------------------------------------------<br />
+   </div>
+   <div class="code">
+FORM zf_process3 .<br />
+<br />
+&nbsp;&nbsp;LOOP&nbsp;AT&nbsp;lt_ztdsr01&nbsp;INTO&nbsp;ls_ztdsr01.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;IF&nbsp;ls_ztdsr01-cargo&nbsp;IS&nbsp;NOT&nbsp;INITIAL&nbsp;AND&nbsp;ls_ztdsr01-dtproc&nbsp;=&nbsp;sy-datum.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_ztdsr02-dt_leitura&nbsp;=&nbsp;sy-datum.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MODIFY&nbsp;ztdsr02&nbsp;FROM&nbsp;ls_ztdsr02.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;ENDIF.<br />
+&nbsp;&nbsp;ENDLOOP.<br />
+<br />
+ENDFORM.<br />
+   </div>
+   <div class="codeComment">
+*&---------------------------------------------------------------------<br />
+*&&nbsp;Form&nbsp;zf_atualiza<br />
+*&---------------------------------------------------------------------<br />
+   </div>
+   <div class="code">
+FORM zf_atualiza .<br />
+<br />
+&nbsp;&nbsp;SELECT&nbsp;*&nbsp;FROM&nbsp;vbap<br />
+&nbsp;&nbsp;&nbsp;&nbsp;INTO&nbsp;TABLE&nbsp;@DATA(lt_vbap)<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHERE&nbsp;erdat&nbsp;=&nbsp;@sy-datum.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;LOOP&nbsp;AT&nbsp;lt_vbap&nbsp;INTO&nbsp;DATA(ls_vbap).<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;READ&nbsp;TABLE&nbsp;lt_ztdsr01&nbsp;INTO&nbsp;ls_ztdsr01&nbsp;WITH&nbsp;KEY&nbsp;uname&nbsp;=&nbsp;ls_vbap-ernam.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_vbap-erdat&nbsp;=&nbsp;ls_vbap-erdat&nbsp;+&nbsp;1.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ls_vbap-ernam&nbsp;=&nbsp;ls_ztdsr01-name.<br />
+<br />
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;MODIFY&nbsp;lt_vbap&nbsp;FROM&nbsp;ls_vbap&nbsp;INDEX&nbsp;sy-tabix.<br />
+&nbsp;&nbsp;&nbsp;&nbsp;ENDLOOP.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&nbsp;&nbsp;MODIFY&nbsp;vbap&nbsp;FROM&nbsp;TABLE&nbsp;lt_vbap.<br />
+<br />
+   </div>
+   <div class="code">
+ENDFORM.<br />
+<br />
+   </div>
+   <div class="codeComment">
+*&---------------------------------------------------------------------<br />
+*&&nbsp;Form&nbsp;zf_busca_info_add<br />
+*&---------------------------------------------------------------------<br />
+   </div>
+   <div class="code">
+FORM zf_busca_info_add .<br />
+<br />
+&nbsp;&nbsp;SELECT&nbsp;SINGLE&nbsp;*&nbsp;FROM&nbsp;ztdsr02<br />
+&nbsp;&nbsp;&nbsp;&nbsp;INTO&nbsp;ls_ztdsr02<br />
+&nbsp;&nbsp;&nbsp;&nbsp;WHERE&nbsp;uname&nbsp;=&nbsp;ls_ztdsr01-uname.<br />
+<br />
+ENDFORM.<br />
+            </div>
+          </td>
+        </tr>
+      </table>
+      </td>
+      </tr>
+   <tr>
+<td class="footer">Extracted by Mass Download version 1.5.5 - E.G.Mellodew. 1998-2024. Sap Release 754</td>
+   </tr>
+</table>
+</body>
+</html>
