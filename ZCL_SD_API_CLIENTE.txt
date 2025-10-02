@@ -1,0 +1,862 @@
+CLASS zcl_sd_api_cliente DEFINITION
+  PUBLIC
+  INHERITING FROM cl_rest_resource
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    "------------------Método GET------------------
+    TYPES:
+      BEGIN OF ty_cliente_entrada_get,
+        cnpj TYPE stcd1,
+        cpf  TYPE stcd2,
+      END OF ty_cliente_entrada_get.
+
+    TYPES:
+      BEGIN OF ty_entrada_get,
+        cod_cliente TYPE STANDARD TABLE OF ty_cliente_entrada_get WITH DEFAULT KEY,
+      END OF ty_entrada_get.
+
+    TYPES:
+      BEGIN OF ty_saida_get,
+        cnpj     TYPE stcd1,
+        cpf      TYPE stcd2,
+        customer TYPE kunnr,
+      END OF ty_saida_get.
+
+    DATA: gt_entrada_get TYPE ty_entrada_get,
+          gt_saida_get   TYPE TABLE OF ty_saida_get.
+    "------------------Método GET------------------
+
+    "------------------Método POST------------------
+
+    TYPES: BEGIN OF ty_pessoa_contato,
+             primeiro_nome        TYPE ad_namefir,
+             ultimo_nome          TYPE ad_namelas,
+             telefone             TYPE ad_tlnmbr,
+             email                TYPE ad_smtpadr,
+*observaçoes,
+           END OF ty_pessoa_contato.
+
+    TYPES:
+      BEGIN OF ty_entrada_post,
+        nome                   TYPE ad_name1,
+        cnpj                   TYPE stcd1,
+        cpf                    TYPE stcd2,
+        email                  TYPE ad_smtpadr,
+        telefone               TYPE ad_tlnmbr,
+        cidade                 TYPE ad_city1,
+        cod_cidade             TYPE ad_citynum,
+        rua                    TYPE ad_street,
+        numero                 TYPE ad_hsnm1,
+        regiao                 TYPE regio,
+        agrupamento_regional   TYPE regiogroup,
+        pais                   TYPE land1,
+        taxjurcode             TYPE ad_txjcd,
+        cod_postal             TYPE ad_pstcd1,
+        cod_condado            TYPE counc,
+        setor_industrial       TYPE bran1_d,
+        chave_setor_industrial TYPE brsch,
+        zona_transporte        TYPE lzone,
+        termo_pesquisa1        TYPE ad_sort1,
+        termo_pesquisa2        TYPE ad_sort2,
+        pessoa_contato         TYPE STANDARD TABLE OF ty_pessoa_contato WITH DEFAULT KEY,
+*        function   TYPE ad_fnctn,
+*        consnumber TYPE ad_consnum,
+*        flgdefault TYPE AD_FLGDFNR,
+      END OF ty_entrada_post.
+
+    DATA: gs_entrada_post TYPE ty_entrada_post.
+    "------------------Método POST------------------
+
+    METHODS if_rest_resource~get
+        REDEFINITION .
+    METHODS if_rest_resource~post
+        REDEFINITION .
+  PROTECTED SECTION.
+private section.
+
+  data MO_MONITOR_HELPER type ref to ZCL_SF_MONITOR_HELPER .
+ENDCLASS.
+
+
+
+CLASS ZCL_SD_API_CLIENTE IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_SD_API_CLIENTE->IF_REST_RESOURCE~GET
+* +-------------------------------------------------------------------------------------------------+
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  METHOD if_rest_resource~get.
+
+    DATA: ls_selopt_tab     TYPE bapikna110,
+          lt_selopt_tab     TYPE TABLE OF bapikna110,
+          lt_result_tab     TYPE TABLE OF bapikna111,
+          ls_return         TYPE bapireturn1,
+          ls_customer       TYPE cmds_ei_extern,
+          ls_busca_det      TYPE cmds_ei_main,
+          ls_detalhe_cli    TYPE cmds_ei_main,
+          ls_erro           TYPE cvis_message,
+          lv_integration_id TYPE zsf_e_int_id,
+          lv_msg            TYPE string.
+
+    CONSTANTS: lc_obj_task       TYPE c VALUE 'M',
+               lc_api_type       TYPE zsf_e_api_type VALUE 'CLIENTE',
+               lc_status_sucesso TYPE zsf_e_status   VALUE 'SUCESSO',
+               lc_status_erro    TYPE zsf_e_status   VALUE 'ERRO'.
+
+    " Cria a instância do nosso helper de log
+    me->mo_monitor_helper = NEW zcl_sf_monitor_helper( ).
+
+    TRY.
+
+        DATA(lo_entity) = mo_response->create_entity( ).
+        lo_entity->set_content_type( if_rest_media_type=>gc_appl_json ).
+
+        DATA(ls_request_body) = mo_request->get_entity( )->get_string_data( ).
+
+        /ui2/cl_json=>deserialize( EXPORTING json = ls_request_body CHANGING data = gt_entrada_get ).
+
+        " Cria a entrada inicial do log.
+        me->mo_monitor_helper->create_log_entry(
+          EXPORTING
+            iv_api_type        = lc_api_type
+            iv_doc_number      = 'GET_CLIENTE' " Um nome para identificar a execução
+            iv_request_payload = /ui2/cl_json=>serialize( gt_entrada_get )
+          IMPORTING
+            ev_integration_id  = lv_integration_id ).
+
+        COMMIT WORK.
+
+        IF gt_entrada_get IS NOT INITIAL.
+
+          LOOP AT gt_entrada_get-cod_cliente INTO DATA(ls_entrada).
+
+            ls_selopt_tab-tabname = 'KNA1'.
+
+            IF ls_entrada-cnpj IS NOT INITIAL.
+
+              ls_selopt_tab-fieldname  = 'STCD1'.
+              ls_selopt_tab-fieldvalue = ls_entrada-cnpj.
+
+            ELSEIF ls_entrada-cpf IS NOT INITIAL.
+
+              ls_selopt_tab-fieldname  = 'STCD2'.
+              ls_selopt_tab-fieldvalue = ls_entrada-cpf.
+
+            ENDIF.
+
+            APPEND ls_selopt_tab TO lt_selopt_tab.
+
+          ENDLOOP.
+
+          CALL FUNCTION 'BAPI_CUSTOMER_FIND'
+            EXPORTING
+              max_cnt    = 100
+              pl_hold    = 'X'
+            IMPORTING
+              return     = ls_return
+            TABLES
+              selopt_tab = lt_selopt_tab
+              result_tab = lt_result_tab.
+
+          IF ls_return-type NE 'S'.
+
+            lv_msg = 'Erro ao tentar encontrar o(s) cliente(s) informado(s).'.
+
+            me->mo_monitor_helper->update_log_entry(
+              EXPORTING
+                iv_integration_id = lv_integration_id
+                iv_status         = lc_status_erro
+                iv_message        = lv_msg ).
+
+            mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+            lo_entity->set_string_data( /ui2/cl_json=>serialize( lt_result_tab ) ).
+
+          ELSE.
+
+            LOOP AT lt_result_tab INTO DATA(ls_result).
+
+              ls_customer-header-object_instance-kunnr = ls_result-customer.
+              ls_customer-header-object_task           = lc_obj_task.
+
+              APPEND ls_customer TO ls_busca_det-customers.
+
+              CLEAR: ls_customer.
+
+            ENDLOOP.
+
+            cmd_ei_api_extract=>get_data(
+              EXPORTING
+                is_master_data        = ls_busca_det   " Ext. Interface: Total Customer Data
+              IMPORTING
+                es_master_data        = ls_detalhe_cli " Ext. Interface: Total Customer Data
+                es_error              = ls_erro ).     " Error Indicator and System Messages
+
+            IF ls_erro IS NOT INITIAL.
+
+              lv_msg = 'Erro ao tentar buscar os detalhes do(s) cliente(s) informado(s).'.
+
+              me->mo_monitor_helper->update_log_entry(
+                EXPORTING
+                  iv_integration_id = lv_integration_id
+                  iv_status         = lc_status_erro
+                  iv_message        = lv_msg ).
+
+              mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+              lo_entity->set_string_data( /ui2/cl_json=>serialize( ls_erro ) ).
+
+            ELSE.
+
+              lv_msg = 'Cliente(s) processado(s) com sucesso.'.
+
+              me->mo_monitor_helper->update_log_entry(
+              EXPORTING
+                iv_integration_id   = lv_integration_id
+                iv_status           = lc_status_sucesso
+                iv_message          = lv_msg
+                iv_response_payload = /ui2/cl_json=>serialize( ls_detalhe_cli-customers ) ).
+
+              lo_entity->set_string_data( /ui2/cl_json=>serialize( ls_detalhe_cli-customers ) ).
+
+            ENDIF.
+          ENDIF.
+        ELSE.
+
+          lv_msg = 'Obrigatório preencher payload para busca de cliente(s).'.
+
+          me->mo_monitor_helper->update_log_entry(
+            EXPORTING
+              iv_integration_id = lv_integration_id
+              iv_status         = lc_status_erro
+              iv_message        = lv_msg ).
+
+          mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+          lo_entity->set_string_data( /ui2/cl_json=>serialize( lv_msg ) ).
+
+        ENDIF.
+      CATCH cx_root INTO DATA(lo_exception).
+        ROLLBACK WORK. " Desfaz qualquer alteração parcial no banco
+
+        DATA(lv_error_message) = lo_exception->get_text( ).
+
+        "### ATUALIZA O LOG COM ERRO ###
+        me->mo_monitor_helper->update_log_entry(
+          EXPORTING
+            iv_integration_id   = lv_integration_id
+            iv_status           = 'ERRO'
+            iv_message          = lv_error_message
+            iv_response_payload = /ui2/cl_json=>serialize( lv_error_message )
+        ).
+
+        COMMIT WORK.
+
+        " Responde à chamada da API com uma mensagem de erro padrão
+        mo_response->set_status( cl_rest_status_code=>gc_server_error_internal ).
+        mo_response->create_entity( )->set_string_data( /ui2/cl_json=>serialize( lv_error_message ) ).
+
+    ENDTRY.
+  ENDMETHOD.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Public Method ZCL_SD_API_CLIENTE->IF_REST_RESOURCE~POST
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IO_ENTITY                      TYPE REF TO IF_REST_ENTITY
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+METHOD if_rest_resource~post.
+
+  DATA: ls_selopt_tab TYPE bapikna110,
+        lt_selopt_tab TYPE TABLE OF bapikna110,
+        lt_result_tab TYPE TABLE OF bapikna111,
+        ls_return     TYPE bapireturn1.
+
+  DATA: lt_contacts       TYPE cmds_ei_contacts_t,
+        ls_contacts       TYPE cmds_ei_contacts,
+        ls_contact_addr   TYPE bapiad3vl,
+        ls_contact_addrx  TYPE bapiad3vlx,
+        ls_address        TYPE bapiad1vl,
+        ls_addressx       TYPE bapiad1vlx,
+        ls_econtact       TYPE cvis_ei_smtp,
+        ls_smtp_st        TYPE cvis_ei_smtp_str,
+        ls_smtp           TYPE cvis_ei_cvi_smtp,
+        ls_tcontact       TYPE cvis_ei_phone,
+        ls_phone_st       TYPE cvis_ei_phone_str,
+        ls_phone          TYPE cvis_ei_cvi_phone,
+        ls_correct        TYPE cmds_ei_main,
+        ls_defective      TYPE cmds_ei_main,
+        ls_msg_correct    TYPE cvis_message,
+        ls_msg_error      TYPE cvis_message,
+        ls_customer       TYPE cmds_ei_extern,
+        lt_customers      TYPE cmds_ei_main,
+        lv_parnr          TYPE parnr,
+        lv_integration_id TYPE zsf_e_int_id,
+        lv_msg            TYPE string.
+
+  CONSTANTS: lc_insert         TYPE c VALUE 'I',
+             lc_update         TYPE c VALUE 'U',
+             lc_api_type       TYPE zsf_e_api_type VALUE 'CLIENTE',
+             lc_status_sucesso TYPE zsf_e_status   VALUE 'SUCESSO',
+             lc_status_erro    TYPE zsf_e_status   VALUE 'ERRO'.
+
+  " Cria a instância do nosso helper de log
+  me->mo_monitor_helper = NEW zcl_sf_monitor_helper( ).
+
+  TRY.
+
+      DATA(lo_entity) = mo_response->create_entity( ).
+      lo_entity->set_content_type( if_rest_media_type=>gc_appl_json ).
+
+      DATA(ls_request_body) = mo_request->get_entity( )->get_string_data( ).
+
+      /ui2/cl_json=>deserialize( EXPORTING json = ls_request_body CHANGING data = gs_entrada_post ).
+
+      " Cria a entrada inicial do log.
+      me->mo_monitor_helper->create_log_entry(
+        EXPORTING
+          iv_api_type        = lc_api_type
+          iv_doc_number      = 'POST_CLIENTE' "Um nome para identificar a execução
+          iv_request_payload = /ui2/cl_json=>serialize( gs_entrada_post )
+        IMPORTING
+          ev_integration_id  = lv_integration_id ).
+
+      COMMIT WORK.
+
+      CALL METHOD cmd_ei_api=>initialize.
+
+      IF gs_entrada_post IS NOT INITIAL.
+
+        SELECT *
+          FROM ztsd_sf_param
+          INTO TABLE @DATA(lt_parametros)
+          WHERE clsname = 'ZCL_SD_API_CLIENTE'
+            AND cpdname = 'POST'.
+
+        SORT lt_parametros BY clsname cpdname param.
+
+        "Verificando se o cliente já existe
+        ls_selopt_tab-tabname = 'KNA1'.
+
+        IF gs_entrada_post-cnpj IS NOT INITIAL.
+
+          ls_selopt_tab-fieldname  = 'STCD1'.
+          ls_selopt_tab-fieldvalue = gs_entrada_post-cnpj.
+
+        ELSEIF gs_entrada_post-cpf IS NOT INITIAL.
+
+          ls_selopt_tab-fieldname  = 'STCD2'.
+          ls_selopt_tab-fieldvalue = gs_entrada_post-cpf.
+
+        ENDIF.
+
+        APPEND ls_selopt_tab TO lt_selopt_tab.
+
+        CALL FUNCTION 'BAPI_CUSTOMER_FIND'
+          EXPORTING
+            max_cnt    = 100
+            pl_hold    = 'X'
+          IMPORTING
+            return     = ls_return
+          TABLES
+            selopt_tab = lt_selopt_tab
+            result_tab = lt_result_tab.
+
+        IF ls_return-type NE 'S'.
+
+          "Criando o cliente
+          ls_contacts-task = lc_insert.
+
+          "Endereço de E-mail
+          ls_econtact-task            = ls_contacts-task.
+          ls_econtact-data-e_mail     = gs_entrada_post-email.
+          ls_econtact-datax-e_mail    = abap_true.
+          ls_smtp-current_state       = ' '.
+          ls_smtp_st-contact          = ls_econtact.
+          APPEND ls_smtp_st TO ls_smtp-smtp.
+
+          IF ls_smtp-smtp IS NOT INITIAL.
+            ls_customer-central_data-address-communication-smtp = ls_smtp.
+          ENDIF.
+
+          "Telefone
+          ls_tcontact-task             = ls_contacts-task.
+          ls_tcontact-data-telephone   = gs_entrada_post-telefone.
+          ls_tcontact-datax-telephone  = abap_true.
+          ls_phone-current_state       = ' '.
+          ls_phone_st-contact          = ls_tcontact.
+          APPEND ls_phone_st TO ls_phone-phone.
+
+          IF ls_phone-phone IS NOT INITIAL.
+            ls_customer-central_data-address-communication-phone = ls_phone.
+          ENDIF.
+
+          "Endereço
+          ls_address-name        = gs_entrada_post-nome.
+          ls_addressx-name       = abap_true.
+
+          ls_address-city        = gs_entrada_post-cidade.
+          ls_addressx-city       = abap_true.
+
+          ls_address-postl_cod1  = gs_entrada_post-cod_postal.
+          ls_addressx-postl_cod1 = abap_true.
+
+          ls_address-street      = gs_entrada_post-rua.
+          ls_addressx-street     = abap_true.
+
+          ls_address-house_no    = gs_entrada_post-numero.
+          ls_addressx-house_no   = abap_true.
+
+          ls_address-country     = gs_entrada_post-pais.
+          ls_addressx-country    = abap_true.
+
+          ls_address-langu       = sy-langu.
+          ls_addressx-langu      = abap_true.
+
+          ls_address-region      = gs_entrada_post-regiao.
+          ls_addressx-region     = abap_true.
+
+          ls_address-sort1       = gs_entrada_post-termo_pesquisa1.
+          ls_addressx-sort1      = abap_true.
+
+          ls_address-sort2       = gs_entrada_post-termo_pesquisa2.
+          ls_addressx-sort2      = abap_true.
+
+          ls_address-taxjurcode  = gs_entrada_post-taxjurcode.
+          ls_addressx-taxjurcode = abap_true.
+
+          ls_address-transpzone  = gs_entrada_post-zona_transporte.
+          ls_addressx-transpzone = abap_true.
+
+          ls_address-regiogroup  = gs_entrada_post-agrupamento_regional.
+          ls_addressx-regiogroup = abap_true.
+
+          ls_customer-central_data-address-postal-data  = ls_address.
+          ls_customer-central_data-address-postal-datax = ls_addressx.
+
+          ls_contacts-address_type_1-task               = ls_contacts-task.
+          ls_contacts-address_type_1-postal-data        = ls_address.
+          ls_contacts-address_type_1-postal-datax       = ls_addressx.
+
+          SELECT SINGLE cityc
+            FROM t005h
+            INTO ls_customer-central_data-central-data-cityc
+            WHERE spras = 'PT'
+              AND regio = gs_entrada_post-regiao
+              AND bezei = gs_entrada_post-cidade.
+
+          IF sy-subrc IS NOT INITIAL.
+            ls_customer-central_data-central-data-cityc = '9999'.
+          ENDIF.
+
+          ls_customer-central_data-central-datax-cityc  = abap_true.
+
+          ls_customer-central_data-central-data-counc   = gs_entrada_post-cod_condado.
+          ls_customer-central_data-central-datax-counc  = abap_true.
+
+          ls_customer-central_data-central-data-bran1   = gs_entrada_post-setor_industrial.
+          ls_customer-central_data-central-datax-bran1  = abap_true.
+
+          ls_customer-central_data-central-data-brsch   = gs_entrada_post-chave_setor_industrial.
+          ls_customer-central_data-central-datax-brsch  = abap_true.
+
+          "Pessoas de contato
+          LOOP AT gs_entrada_post-pessoa_contato INTO DATA(ls_contato).
+
+            CLEAR: ls_contact_addr, ls_contact_addrx, ls_econtact, ls_smtp, ls_smtp_st, ls_tcontact, ls_phone, ls_phone_st.
+
+            CALL FUNCTION 'NUMBER_GET_NEXT'
+              EXPORTING
+                nr_range_nr             = 'AP'
+                object                  = 'PARTNER'
+                quantity                = '1'
+                subobject               = ' '
+              IMPORTING
+                number                  = lv_parnr
+              EXCEPTIONS
+                interval_not_found      = 1
+                number_range_not_intern = 2
+                object_not_found        = 3
+                quantity_is_0           = 4
+                quantity_is_not_1       = 5
+                interval_overflow       = 6
+                buffer_overflow         = 7
+                OTHERS                  = 8.
+
+            ls_contacts-data_key-parnr = lv_parnr.
+
+            "Nome
+            ls_contact_addr-firstname  = ls_contato-primeiro_nome.
+            ls_contact_addrx-firstname = abap_true.
+            ls_contact_addr-lastname   = ls_contato-ultimo_nome.
+            ls_contact_addrx-lastname  = abap_true.
+
+            ls_contacts-address_type_3 = VALUE #( task         = ls_contacts-task
+                                                  postal-data  = ls_contact_addr
+                                                  postal-datax = ls_contact_addrx ).
+
+            "Endereço de E-mail
+            ls_econtact-task            = ls_contacts-task.
+*        ls_econtact-data-std_no     = gs_entrada_post-flgdefault.
+*        ls_econtact-data-consnumber = gs_entrada_post-consnumber.
+            ls_econtact-data-e_mail     = ls_contato-email.
+            ls_econtact-datax-e_mail    = abap_true.
+            ls_smtp-current_state       = ' '.
+            ls_smtp_st-contact          = ls_econtact.
+            APPEND ls_smtp_st TO ls_smtp-smtp.
+
+            IF ls_smtp-smtp IS NOT INITIAL.
+              ls_contacts-address_type_3-communication-smtp = ls_smtp.
+            ENDIF.
+
+            "Telefone
+            ls_tcontact-task             = ls_contacts-task.
+            ls_tcontact-data-telephone   = ls_contato-telefone.
+            ls_tcontact-datax-telephone  = abap_true.
+*        ls_tcontact-data-std_no     = gs_entrada_post-flgdefault.
+*        ls_tcontact-data-consnumber = gs_entrada_post-consnumber.
+            ls_phone-current_state       = ' '.
+            ls_phone_st-contact          = ls_tcontact.
+            APPEND ls_phone_st TO ls_phone-phone.
+
+            IF ls_phone-phone IS NOT INITIAL.
+              ls_contacts-address_type_3-communication-phone = ls_phone.
+            ENDIF.
+
+            APPEND ls_contacts TO lt_contacts.
+
+            CLEAR: lv_parnr.
+
+          ENDLOOP.
+
+          "Assign contacts to customer structure
+          ls_customer-central_data-contact-contacts = lt_contacts.
+          ls_customer-header-object_task            = ls_contacts-task.
+
+          READ TABLE lt_parametros INTO DATA(ls_ktokd) WITH KEY param = 'KTOKD' BINARY SEARCH.
+
+          ls_customer-central_data-central-data-ktokd  = ls_ktokd-valor(4).
+          ls_customer-central_data-central-datax-ktokd = abap_true.
+
+          IF gs_entrada_post-cnpj IS NOT INITIAL.
+            ls_customer-central_data-central-data-stcd1  = gs_entrada_post-cnpj.
+            ls_customer-central_data-central-datax-stcd1 = abap_true.
+          ELSEIF gs_entrada_post-cpf IS NOT INITIAL.
+            ls_customer-central_data-central-data-stcd2  = gs_entrada_post-cpf.
+            ls_customer-central_data-central-datax-stcd2 = abap_true.
+          ENDIF.
+
+          APPEND ls_customer TO lt_customers-customers.
+
+        ELSE.
+
+          "Atualiza Cliente
+          ls_contacts-task = lc_update.
+
+          "Endereço de E-mail
+          IF gs_entrada_post-email IS NOT INITIAL.
+
+            ls_econtact-task            = ls_contacts-task.
+            ls_econtact-data-e_mail     = gs_entrada_post-email.
+            ls_econtact-datax-e_mail    = abap_true.
+            ls_smtp-current_state       = ' '.
+            ls_smtp_st-contact          = ls_econtact.
+            APPEND ls_smtp_st TO ls_smtp-smtp.
+
+            IF ls_smtp-smtp IS NOT INITIAL.
+              ls_customer-central_data-address-communication-smtp = ls_smtp.
+            ENDIF.
+          ENDIF.
+
+          "Telefone
+          IF gs_entrada_post-telefone IS NOT INITIAL.
+
+            ls_tcontact-task             = ls_contacts-task.
+            ls_tcontact-data-telephone   = gs_entrada_post-telefone.
+            ls_tcontact-datax-telephone  = abap_true.
+            ls_phone-current_state       = ' '.
+            ls_phone_st-contact          = ls_tcontact.
+            APPEND ls_phone_st TO ls_phone-phone.
+
+            IF ls_phone-phone IS NOT INITIAL.
+              ls_customer-central_data-address-communication-phone = ls_phone.
+            ENDIF.
+          ENDIF.
+
+          "Endereço
+
+          IF gs_entrada_post-nome IS NOT INITIAL.
+            ls_address-name  = gs_entrada_post-nome.
+            ls_addressx-name = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-cidade IS NOT INITIAL.
+            ls_address-city        = gs_entrada_post-cidade.
+            ls_addressx-city       = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-cod_postal IS NOT INITIAL.
+            ls_address-postl_cod1  = gs_entrada_post-cod_postal.
+            ls_addressx-postl_cod1 = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-rua IS NOT INITIAL.
+            ls_address-street      = gs_entrada_post-rua.
+            ls_addressx-street     = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-numero IS NOT INITIAL.
+            ls_address-house_no    = gs_entrada_post-numero.
+            ls_addressx-house_no   = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-pais IS NOT INITIAL.
+            ls_address-country     = gs_entrada_post-pais.
+            ls_addressx-country    = abap_true.
+          ENDIF.
+
+          ls_address-langu       = sy-langu.
+          ls_addressx-langu      = abap_true.
+
+          IF gs_entrada_post-regiao IS NOT INITIAL.
+            ls_address-region      = gs_entrada_post-regiao.
+            ls_addressx-region     = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-termo_pesquisa1 IS NOT INITIAL.
+            ls_address-sort1       = gs_entrada_post-termo_pesquisa1.
+            ls_addressx-sort1      = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-termo_pesquisa2 IS NOT INITIAL.
+            ls_address-sort2       = gs_entrada_post-termo_pesquisa2.
+            ls_addressx-sort2      = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-taxjurcode IS NOT INITIAL.
+            ls_address-taxjurcode  = gs_entrada_post-taxjurcode.
+            ls_addressx-taxjurcode = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-zona_transporte IS NOT INITIAL.
+            ls_address-transpzone  = gs_entrada_post-zona_transporte.
+            ls_addressx-transpzone = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-agrupamento_regional IS NOT INITIAL.
+            ls_address-regiogroup  = gs_entrada_post-agrupamento_regional.
+            ls_addressx-regiogroup = abap_true.
+          ENDIF.
+
+          IF ls_address IS NOT INITIAL.
+
+            ls_customer-central_data-address-postal-data  = ls_address.
+            ls_customer-central_data-address-postal-datax = ls_addressx.
+
+            ls_contacts-address_type_1-task               = ls_contacts-task.
+            ls_contacts-address_type_1-postal-data        = ls_address.
+            ls_contacts-address_type_1-postal-datax       = ls_addressx.
+
+          ENDIF.
+
+          IF gs_entrada_post-cod_cidade IS NOT INITIAL.
+            ls_customer-central_data-central-data-cityc  = gs_entrada_post-cod_cidade.
+            ls_customer-central_data-central-datax-cityc = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-cod_condado IS NOT INITIAL.
+            ls_customer-central_data-central-data-counc  = gs_entrada_post-cod_condado.
+            ls_customer-central_data-central-datax-counc = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-setor_industrial IS NOT INITIAL.
+            ls_customer-central_data-central-data-bran1  = gs_entrada_post-setor_industrial.
+            ls_customer-central_data-central-datax-bran1 = abap_true.
+          ENDIF.
+
+          IF gs_entrada_post-chave_setor_industrial IS NOT INITIAL.
+            ls_customer-central_data-central-data-brsch  = gs_entrada_post-chave_setor_industrial.
+            ls_customer-central_data-central-datax-brsch = abap_true.
+          ENDIF.
+
+          "Pessoas de contato
+          READ TABLE lt_result_tab INTO DATA(ls_kunnr) INDEX 1.
+
+          SELECT parnr, namev
+            FROM knvk
+            INTO TABLE @DATA(lt_parnr)
+            WHERE kunnr = @ls_kunnr-customer.
+
+          LOOP AT gs_entrada_post-pessoa_contato INTO ls_contato.
+
+            CLEAR: ls_contacts, ls_contact_addr, ls_contact_addrx, ls_econtact, ls_smtp, ls_smtp_st,
+                   ls_tcontact, ls_phone, ls_phone_st, lv_parnr.
+
+            ls_contacts-task = lc_update.
+
+            READ TABLE lt_parnr INTO DATA(ls_parnr) WITH KEY namev = ls_contato-primeiro_nome.
+
+            IF sy-subrc IS INITIAL.
+
+              ls_contacts-data_key-parnr = ls_parnr-parnr.
+
+              "Nome
+*            ls_contact_addr-firstname  = ls_contato-primeiro_nome.
+*            ls_contact_addrx-firstname = abap_true.
+*            ls_contact_addr-lastname   = ls_contato-ultimo_nome.
+*            ls_contact_addrx-lastname  = abap_true.
+*
+*            ls_contacts-address_type_3 = VALUE #( task         = ls_contacts-task
+*                                                  postal-data  = ls_contact_addr
+*                                                  postal-datax = ls_contact_addrx ).
+
+              "Endereço de E-mail
+              IF ls_contato-email IS NOT INITIAL.
+
+                ls_econtact-task            = ls_contacts-task.
+                ls_econtact-data-e_mail     = ls_contato-email.
+                ls_econtact-datax-e_mail    = abap_true.
+                ls_smtp-current_state       = ' '.
+                ls_smtp_st-contact          = ls_econtact.
+                APPEND ls_smtp_st TO ls_smtp-smtp.
+
+                IF ls_smtp-smtp IS NOT INITIAL.
+                  ls_contacts-address_type_3-communication-smtp = ls_smtp.
+                ENDIF.
+              ENDIF.
+
+              "Telefone
+              IF ls_contato-telefone IS NOT INITIAL.
+                ls_tcontact-task             = ls_contacts-task.
+                ls_tcontact-data-telephone   = ls_contato-telefone.
+                ls_tcontact-datax-telephone  = abap_true.
+                ls_phone-current_state       = ' '.
+                ls_phone_st-contact          = ls_tcontact.
+                APPEND ls_phone_st TO ls_phone-phone.
+
+                IF ls_phone-phone IS NOT INITIAL.
+                  ls_contacts-address_type_3-communication-phone = ls_phone.
+                ENDIF.
+              ENDIF.
+
+              APPEND ls_contacts TO lt_contacts.
+
+            ELSE.
+
+              lv_msg = | Não foi possivel atualizar o cliente pois não existe nenhum contato pessoal com o nome '{ ls_contato-primeiro_nome }'. |.
+
+              me->mo_monitor_helper->update_log_entry(
+              EXPORTING
+                iv_integration_id = lv_integration_id
+                iv_status         = lc_status_erro
+                iv_message        = lv_msg ).
+
+              mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+              lo_entity->set_string_data( /ui2/cl_json=>serialize( lv_msg ) ).
+              RETURN.
+
+            ENDIF.
+          ENDLOOP.
+
+          "Assign contacts to customer structure
+          ls_customer-central_data-contact-contacts = lt_contacts.
+
+          "Header
+          ls_customer-header-object_instance-kunnr = ls_kunnr-customer.
+          ls_customer-header-object_task           = ls_contacts-task.
+
+          READ TABLE lt_parametros INTO ls_ktokd WITH KEY param = 'KTOKD' BINARY SEARCH.
+
+          ls_customer-central_data-central-data-ktokd  = ls_ktokd-valor(4).
+          ls_customer-central_data-central-datax-ktokd = abap_true.
+
+          IF gs_entrada_post-cnpj IS NOT INITIAL.
+            ls_customer-central_data-central-data-stcd1  = gs_entrada_post-cnpj.
+            ls_customer-central_data-central-datax-stcd1 = abap_true.
+          ELSEIF gs_entrada_post-cpf IS NOT INITIAL.
+            ls_customer-central_data-central-data-stcd2  = gs_entrada_post-cpf.
+            ls_customer-central_data-central-datax-stcd2 = abap_true.
+          ENDIF.
+
+          APPEND ls_customer TO lt_customers-customers.
+
+        ENDIF.
+
+        CALL METHOD cmd_ei_api=>maintain_bapi
+          EXPORTING
+            iv_collect_messages      = 'X'
+            is_master_data           = lt_customers
+          IMPORTING
+            es_master_data_correct   = ls_correct
+            es_message_correct       = ls_msg_correct
+            es_master_data_defective = ls_defective
+            es_message_defective     = ls_msg_error.
+
+        IF ls_msg_error-is_error IS NOT INITIAL.
+
+          IF ls_contacts-task = 'I'.
+            lv_msg = 'Erro ao criar cliente.'.
+          ELSEIF ls_contacts-task = 'U'.
+            lv_msg = 'Erro ao atualizar cliente.'.
+          ENDIF.
+
+          me->mo_monitor_helper->update_log_entry(
+            EXPORTING
+              iv_integration_id = lv_integration_id
+              iv_status         = lc_status_erro
+              iv_message        = lv_msg
+              iv_response_payload = /ui2/cl_json=>serialize( ls_msg_error-messages ) ).
+
+          mo_response->set_status( cl_rest_status_code=>gc_client_error_bad_request ).
+          lo_entity->set_string_data( /ui2/cl_json=>serialize( ls_msg_error-messages ) ).
+
+        ELSE.
+
+          CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+            EXPORTING
+              wait = abap_true.
+
+          READ TABLE ls_correct-customers INTO DATA(lt_kunnr) INDEX 1.
+
+          IF ls_contacts-task = 'I'.
+            CONCATENATE 'Cliente nª' lt_kunnr-header-object_instance-kunnr 'criado com sucesso.' INTO lv_msg SEPARATED BY space.
+          ELSEIF ls_contacts-task = 'U'.
+            CONCATENATE 'Cliente nª' lt_kunnr-header-object_instance-kunnr 'atualizado com sucesso.' INTO lv_msg SEPARATED BY space.
+          ENDIF.
+
+          me->mo_monitor_helper->update_log_entry(
+              EXPORTING
+                iv_integration_id   = lv_integration_id
+                iv_status           = lc_status_sucesso
+                iv_message          = lv_msg
+                iv_response_payload = /ui2/cl_json=>serialize( ls_correct-customers ) ).
+
+          lo_entity->set_string_data( /ui2/cl_json=>serialize( lv_msg ) ).
+
+        ENDIF.
+      ENDIF.
+
+    CATCH cx_root INTO DATA(lo_exception).
+      ROLLBACK WORK. " Desfaz qualquer alteração parcial no banco
+
+      DATA(lv_error_message) = lo_exception->get_text( ).
+
+      "### ATUALIZA O LOG COM ERRO ###
+      me->mo_monitor_helper->update_log_entry(
+        EXPORTING
+          iv_integration_id   = lv_integration_id
+          iv_status           = 'ERRO'
+          iv_message          = lv_error_message
+          iv_response_payload = /ui2/cl_json=>serialize( lv_error_message )
+      ).
+
+      COMMIT WORK.
+
+      " Responde à chamada da API com uma mensagem de erro padrão
+      mo_response->set_status( cl_rest_status_code=>gc_server_error_internal ).
+      mo_response->create_entity( )->set_string_data( /ui2/cl_json=>serialize( lv_error_message ) ).
+
+  ENDTRY.
+ENDMETHOD.
+ENDCLASS.
